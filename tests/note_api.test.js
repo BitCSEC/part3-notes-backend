@@ -1,8 +1,9 @@
 const assert = require('node:assert')
 const bcrypt = require('bcrypt')
-const { test, after, beforeEach, describe } = require('node:test')
+const { test, after, beforeEach, describe, before } = require('node:test')
 const mongoose = require('mongoose')
 const supertest = require('supertest')
+const jwt = require('jsonwebtoken')
 
 const app = require('../app')
 const helper = require('./test_helper')
@@ -12,6 +13,18 @@ const User = require('../models/user')
 const api = supertest(app)
 
 describe('when there is initially some notes saved', () => {
+  let token
+  before(async () => {
+    await User.deleteMany({})
+
+    const passwordHash = await bcrypt.hash('sekret', 10)
+    const user = new User({ _id:'6ac4d846339aae80c20cad77', username: 'root', passwordHash })
+    await user.save()
+
+    const secret = process.env.SECRET
+    token = jwt.sign({ username: 'root', id: '6ac4d846339aae80c20cad77' }, secret)
+  })
+
   beforeEach(async () => {
     await Note.deleteMany({})
     await Note.insertMany(helper.initialNotes)
@@ -72,6 +85,7 @@ describe('when there is initially some notes saved', () => {
 
       await api
         .post('/api/notes')
+        .set({ Authorization: `Bearer ${token}` })
         .send(newNote)
         .expect(201)
         .expect('Content-Type', /application\/json/)
@@ -86,7 +100,7 @@ describe('when there is initially some notes saved', () => {
     test('fails with status code 400 if data invalid', async () => {
       const newNote = { important: true }
 
-      await api.post('/api/notes').send(newNote).expect(400)
+      await api.post('/api/notes').set({ Authorization: `Bearer ${token}` }).send(newNote).expect(400)
 
       const notesAtEnd = await helper.notesInDb()
 
@@ -99,7 +113,7 @@ describe('when there is initially some notes saved', () => {
       const notesAtStart = await helper.notesInDb()
       const noteToDelete = notesAtStart[0]
 
-      await api.delete(`/api/notes/${noteToDelete.id}`).expect(204)
+      await api.delete(`/api/notes/${noteToDelete.id}`).set({ Authorization: `Bearer ${token}` }).expect(204)
 
       const notesAtEnd = await helper.notesInDb()
 
@@ -112,15 +126,6 @@ describe('when there is initially some notes saved', () => {
 })
 
 describe('when there is initially one user at db', () => {
-  beforeEach(async () => {
-    await User.deleteMany({})
-
-    const passwordHash = await bcrypt.hash('sekret', 10)
-    const user = new User({ username: 'root', passwordHash })
-
-    await user.save()
-  })
-
   test('creation succeeds with a fresh username', async () => {
     const usersAtStart = await helper.usersInDb()
 
